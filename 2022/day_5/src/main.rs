@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::fmt::{Debug, Display, Formatter};
 use itertools::Itertools;
 use nom::{branch::alt, bytes::complete::{tag, take}, combinator::{all_consuming, map, opt}, sequence::{delimited, preceded}, Finish, IResult, Parser};
@@ -23,7 +24,7 @@ fn main() -> color_eyre::Result<()> {
                 .map(|(_, line)| line)
         })
         .collect();
-    let mut piles = Piles(transpose_rev(crate_lines));
+    let mut piles = Piles(transpose_rev(crate_lines).into_iter().map(RefCell::new).collect());
     println!("{piles:?}");
 
     // we've consumed the "numbers line" but not the separating line
@@ -44,7 +45,7 @@ fn main() -> color_eyre::Result<()> {
         println!("{piles:?}");
     }
 
-    let tops = piles.0.iter().map(|pile| pile.last().unwrap()).join("");
+    let tops = piles.0.iter().map(|pile| *pile.borrow().last().unwrap()).join("");
     println!("answer = {tops}");
     
     // let b = Vec<&Crate>::join("");
@@ -58,7 +59,7 @@ fn main() -> color_eyre::Result<()> {
     Ok(())
 }
 
-
+#[derive(Clone, Copy)]
 struct Crate(char);
 
 impl Debug for Crate {
@@ -151,13 +152,24 @@ fn transpose_rev<T>(v: Vec<Vec<Option<T>>>) -> Vec<Vec<T>> {
     }).collect()
 }
 
-struct Piles(Vec<Vec<Crate>>);
+struct Piles(Vec<RefCell<Vec<Crate>>>);
 
 impl Piles {
     fn apply(&mut self, ins: Instruction) {
-        for _ in 0..ins.quantity {
-            let c = self.0[ins.src].pop().unwrap();
-            self.0[ins.dst].push(c);
+        // previous one at a time crane impl
+        // for _ in 0..ins.quantity {
+            // let c = self.0[ins.src].pop().unwrap();
+            // self.0[ins.dst].push(c);
+        // }
+        
+
+        for krate in (0..ins.quantity)
+            .map(|_| self.0[ins.src].borrow_mut().pop().unwrap())
+            .collect::<Vec<_>>() //force collection to that rev works
+            .into_iter()
+            .rev()
+        {
+            self.0[ins.dst].borrow_mut().push(krate);
         }
     }
 }
