@@ -155,3 +155,4 @@ fn get_distance(vector: &Vector, grid: &Grid) -> u64 {
 
     x_component + y_component
 }
+
