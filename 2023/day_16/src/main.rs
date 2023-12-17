@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet, VecDeque};
-use ndarray::{Array2, ArrayBase, Ix, Ix1, Ix2, OwnedRepr, s};
+use ndarray::{Array2, ArrayBase, Ix2, OwnedRepr, s};
 use crate::Direction::{D, L, R, U};
 
 // This time we are going to try ndarray crate to see if its easier to work with matrices than nalgebra.
