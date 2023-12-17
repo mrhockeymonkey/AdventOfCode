@@ -1,133 +1,115 @@
 use std::collections::HashMap;
-use std::hint::unreachable_unchecked;
-use nalgebra::{DMatrix, Matrix2x3, OMatrix};
-use crate::Direction::{North, East, South, West};
-use crate::Element::{RoundRock, Space, SquareRock};
 
 fn main() {
     //let input = include_str!("sample.txt");
     let input = include_str!("input.txt");
 
-    // parse input into matrix
-    let x = input.lines().next().unwrap().chars().count();
-    let y = input.lines().count();
+    let sum_of_hash: u32 = input.split(',')
+        .map(|step| hash(step.as_bytes()))
+        .sum();
 
-    let iter = input.lines()
-        .map(|l| l.chars()
-            .map(|c| match c {
-            '.' => Space,
-            '#' => SquareRock,
-            'O' => RoundRock,
-            _ => unreachable!(),
-        }))
-        .flatten();
-
-    let grid = DMatrix::from_row_iterator(y, x, iter);
-
-    // part 1
-    // let tilted_north = tilt(grid, Direction::North);
-    //
-    // let mut total_weight = 0;
-    // for (i, row) in tilted_north.row_iter().enumerate() {
-    //     let factor = y - i;
-    //     let round_rocks = row.iter().filter(|elem| matches!(elem,  RoundRock)).count();
-    //     total_weight += round_rocks * factor;
-    // }
-    // println!("total weight {}", total_weight);
+    println!("sum of hashed steps is {}", sum_of_hash);
 
     // part 2
-    let mut result = grid;
-    let mut states = HashMap::new();
-    let loop_tolerance = 500;
-    let mut loop_count= 0;
-    let mut loop_size = 0;
+    // make boxes, parse steps,
+    let mut box_map = (0..256) // could we use internal mutability?
+        .map(|id| (id, Box{id, lenses: Vec::new()}))
+        .collect::<HashMap<_, _>>();
 
-    // let steps = ((1_000_000_000 - 3) % 7) + 3; // sample
+    input.split(',')
+        .map(|step| Step::from(step.as_bytes()))
+        .for_each(|step| {
+            let h = dbg!(hash(step.label));
+            let target_box = box_map.get_mut(&h);
+            target_box.unwrap().process(&step);
+        });
 
-    // Iteration 179 saw this state already in iteration 153 which was 26 iterations ago
-    // so the loop starts in 153 and is 26 cycles long
-    let steps = ((1_000_000_000 - 153) % 26) + 153;
-
-    for i in 1..=steps {
-    //for i in 1..=5000 {
-        result = spin_cycle(result);
-
-        if let Some(prev_i) = states.insert(result.clone(), i) {
-            let last_seen = i - prev_i;
-            println!("Iteration {} saw this state already in iteration {} which was {} iterations ago", i, prev_i, last_seen);
-
-            // if the loop size does not change within the loop tolerance we can break early
-            if loop_size == last_seen {loop_count += 1} else {loop_size = last_seen}
-            if loop_count > loop_tolerance {
-                //
-                break
-            }
-        }
-    }
-
-    let mut total_weight = 0;
-    for (i, row) in result.row_iter().enumerate() {
-        let factor = y - i;
-        let round_rocks = row.iter().filter(|elem| matches!(elem,  RoundRock)).count();
-        total_weight += round_rocks * factor;
-    }
-    println!("part 2 total weight {}", total_weight);
-
-
-}
-
-#[derive(Debug, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
-enum Element {
-    RoundRock,
-    Space,
-    SquareRock,
-}
-
-enum Direction {
-    North,
-    East,
-    South,
-    West
-}
-
-fn spin_cycle(grid: DMatrix<Element>) -> DMatrix<Element> {
-    let north = tilt(grid, Direction::North);
-    let west = tilt(north, Direction::West);
-    let south = tilt(west, Direction::South);
-    tilt(south, Direction::East)
-}
-
-fn tilt(grid: DMatrix<Element>, direction: Direction) -> DMatrix<Element> {
-    if let North | South = direction {
-        let tilted_cols = grid.column_iter()
-            .map(|col| col.iter().cloned().collect())
-            .map(|elems| roll_rocks(elems, &direction).into_iter())
-            .flatten()
-            .collect::<Vec<_>>();
-
-        DMatrix::from_iterator(grid.ncols(), grid.ncols(), tilted_cols)
-    }
-    else {
-        let tilted_rows = grid.row_iter()
-            .map(|row| row.iter().cloned().collect())
-            .map(|elems| roll_rocks(elems, &direction).into_iter())
-            .flatten()
-            .collect::<Vec<_>>();
-
-        DMatrix::from_row_iterator(grid.ncols(), grid.ncols(), tilted_rows)
-    }
-}
-
-fn roll_rocks(source: Vec<Element>, direction: &Direction) -> Vec<Element> {
-    let mut reordered = source.split(|elem| matches!(elem, SquareRock))
-        .map(|part| {
-            let mut sorted = part.to_vec();
-            sorted.sort_unstable_by(|a, b| if matches!(direction, North) || matches!(direction, West) { a.cmp(b) } else { b.cmp(a) });
-            sorted.into_iter().chain(Some(SquareRock).into_iter())
-        })
+    let sum_focus_power: u32 = box_map.iter()
+        .map(|(i, b)| b.focusing_powers())
         .flatten()
-        .collect::<Vec<_>>();
+        .sum();
 
-    reordered.pop();
-    reordered
+    println!("sum of focusing power is {}", sum_focus_power);
+
+
+}
+
+// Why I did this to myself I dont know but playing with lifetimes is useful for learning.
+#[derive(Debug)]
+struct Step<'a> {
+    label: &'a[u8],
+    op: u8,
+    focal_len: u8,
+}
+
+impl<'a> Step<'a> {
+    fn is_remove(&self) -> bool {
+        self.op == 45
+    }
+}
+
+impl<'a> From<&'a[u8]> for Step<'a> {
+    fn from(value: &'a[u8]) -> Self {
+        let l = value.len();
+         if value[l -1] == 45 { // '-' == 45
+             Step {
+                 label: value[0..=value.len() -2].as_ref(),
+                 op: 45,
+                 focal_len: 0,
+             }
+         }
+         else {
+             Step {
+                 label: value[0..=value.len() -3].as_ref(),
+                 op: value[value.len() - 2],
+                 focal_len: value[value.len() - 1],
+             }
+         }
+    }
+}
+
+#[derive(Debug)]
+struct Lens {
+    label: String,
+    len: u32,
+}
+
+struct Box {
+    id: u32,
+    lenses: Vec<Lens>
+}
+
+impl Box {
+    fn process(&mut self, step: &Step) {
+        let label = String::from_utf8(step.label.to_vec()).unwrap();
+        let present = self.lenses.iter().position(|l| l.label == label);
+
+        match (present, step.is_remove()) {
+            (Some(i), true) => {
+                self.lenses.remove(i);
+            },
+            (Some(i), false) => self.lenses[i] = Lens { label, len: (step.focal_len -48) as u32 },
+            (None, true) => {},
+            (None, false) => self.lenses.push(Lens { label, len: (step.focal_len -48) as u32 }),
+        }
+
+        dbg!(&self.lenses);
+    }
+
+    fn focusing_powers(&self) -> Vec<u32> {
+        self.lenses.iter()
+            .enumerate()
+            .map(|(i, l)| (self.id + 1) * (i as u32 + 1) * l.len)
+            .collect()
+    }
+}
+
+fn hash(data: &[u8]) -> u32 {
+    data.iter()
+        .fold(0u32, |mut acc, val| {
+            acc = acc + *val as u32;
+            acc = acc * 17;
+            acc = acc % 256;
+            acc
+        })
 }
